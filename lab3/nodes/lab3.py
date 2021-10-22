@@ -5,6 +5,7 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 import sys, select, os
 import numpy as np
+from enum import Enum
 if os.name == 'nt':
     import msvcrt
 else:
@@ -28,8 +29,6 @@ def getKey(): #you can ignore this function. It's for stopping the robot when pr
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
     return key
 
-STRAIGHT = 0
-TURNING = 1
 
 class PIDcontrol():
     def __init__(self):
@@ -48,7 +47,9 @@ class PIDcontrol():
         self.lasterror = 0
         self.rate = rospy.Rate(15)
         self.log = open('log.txt', 'w')
-        self.state = STRAIGHT
+        self.state = 0
+        self.adj_counter = 0
+        self.adj_threshold = 5
 
 
 
@@ -132,34 +133,49 @@ class PIDcontrol():
         derivative = error - self.lasterror
         correction = self.kp * error + self.ki * self.integral + self.kd * derivative
         # self.twist.linear.x = self.v + min(1, abs(1/((correction * 3)**2 + 0.1)))
-        # self.twist.linear.x = 1 / max(abs(float(error)),1) + self.v
+        self.twist.linear.x = 1 / max(abs(float(error)),1) + self.v
         # self.twist.linear.x = self.v
-        if self.state == STRAIGHT and derivative > 90:
-            self.state = TURNING
-        elif self.state == STRAIGHT:
-            self.state = STRAIGHT
-        elif self.state == TURNING and abs(error) < 20:
-            self.state = STRAIGHT
-        elif self.state == TURNING:
-            self.state == TURNING
+        # if self.state == 0:
+        #     if derivative > 90 or abs(error) > 150:
+        #         self.next_state()
+        # elif self.state == 1:
+        #     if abs(error) < 20:
+        #         self.next_state()
+        # elif self.state == 2:
+        #     if self.adj_counter < self.adj_threshold:
+        #         self.next_state()
+        #         self.adj_counter = 0
+        #     else:
+        #         self.adj_counter += 1
         
-        if self.state == STRAIGHT:
-            self.twist.linear.x = self.v + 0.4
-        else:
-            self.twist.linear.x = self.v
+        # if self.state == 0:
+        #     self.twist.linear.x = self.v + 0
+        # else:
+        #     self.twist.linear.x = self.v
         self.twist.angular.z = correction
         self.lasterror = error
         
-        self.log.write("error: " + str(error) + "\n")
-        self.log.write("last error: " + str(self.lasterror) + "\n")
-        self.log.write("integral: " + str(self.integral) + "\n")
-        self.log.write("derivative: " + str(derivative) + "\n")
-        self.log.write("angular speed: " + str(self.twist.angular.z) + "\n")
-        self.log.write("speed: " + str(self.twist.linear.x) + "\n")
-        self.log.write('================================================================\n')
+        # self.log.write("error: " + str(error) + "\n")
+        # self.log.write("last error: " + str(self.lasterror) + "\n")
+        # self.log.write("integral: " + str(self.integral) + "\n")
+        # self.log.write("derivative: " + str(derivative) + "\n")
+        # self.log.write("angular speed: " + str(self.twist.angular.z) + "\n")
+        # self.log.write("speed: " + str(self.twist.linear.x) + "\n")
+        # self.log.write('================================================================\n')
+        print("error: " + str(error))
+        print("last error: " + str(self.lasterror))
+        print("integral: " + str(self.integral))
+        print("derivative: " + str(derivative))
+        print("angular speed: " + str(self.twist.angular.z))
+        print("speed: " + str(self.twist.linear.x))
+        print("adj count: " + str(self.adj_counter))
+        print('================================================================\n')
 
     def close_log(self):
         self.log.close()
+
+    def next_state(self):
+        self.state = (self.state + 1) % 3
 
 
 if __name__=="__main__":
