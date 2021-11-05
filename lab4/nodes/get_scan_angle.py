@@ -21,7 +21,7 @@ def get_scan():
 
     # filter out measurements with ranges larger than 3m or y_range outside of 0.5-0.65m
     angles = angles[(y_range <= 0.65) & (y_range >= 0.5) & (in_range < 3)]
-    median_angle = np.median(angles) + 8.1
+    median_angle = np.median(angles) + 8.1 * np.pi / 180
 
     # take the median of the sensed angles
     return median_angle

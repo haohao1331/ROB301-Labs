@@ -5,3 +5,7 @@ roslaunch turtlebot3_bringup turtlebot3_robot.launch
 roslaunch turtlebot3_bringup turtlebot3_rpicamera.launch
 
 roslaunch turtlebot3_teleop turtlebot3_teleop_key.launch
+
+rosrun lab4 pub_noisy_vel.py
+
+rosrun lab4 get_scan_angle.py

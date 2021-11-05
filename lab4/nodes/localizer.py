@@ -48,10 +48,9 @@ class PIDcontrol():
         self.PID()
         # self.test()
         self.cmd_pub.publish(self.twist)
-        self.rate.sleep()
+        # self.rate.sleep()
 
     def unfiltered(self):
-        print((1.0/30.0)*float(self.u))
         now = rospy.Time.now().to_sec()
         self.delta_x = self.delta_x + (now - self.prev_time)*float(self.u)*100.0 # rate = 30 Hz
         print(self.delta_x)
@@ -100,8 +99,8 @@ class KalmanFilter(object):
         self.P_list = []
         self.x_list = []
 
-        self.ycn = 1 # TODO
-        self.xcn = 1 # TODO
+        self.ycn = 60.0 # TODO
+        self.xcn = 60.0 *3.0 # TODO
 
         self.u = 0.1  # initialize the cmd_vel input
         self.phi = np.nan  # initialize the measurement input
@@ -130,7 +129,7 @@ class KalmanFilter(object):
         self.prev_time = now
         
         # predict state and D
-        self.x = self.x + u * self.dt
+        self.x = self.x + u * self.dt * 100.0
         self.D = self.h / ((self.d - self.x)**2 + self.h**2)
         
         # update covariance
@@ -142,34 +141,37 @@ class KalmanFilter(object):
 
     ## call within run_kf to update the state with the measurement
     def measurement_update(self, current_measurement):
-        """
-        TODO: update state when a new measurement has arrived using this function
-        """
         # self.phi = np.arctan(self.ycn / (self.xcn - self.x))
-        s = current_measurement - np.arctan(self.ycn / (self.xcn - self.x))
-        self.x = self.x + self.W  * s
+        if not np.isnan(current_measurement):
+            est = np.arctan(self.ycn / (self.xcn - self.x))
+            if est < 0:
+                est += np.pi
+            s = current_measurement - est
+            print("s: ", s)
+            print("xcn: ", self.xcn)
+            print("ycn: ", self.ycn)
+            print("x: ", self.x)
+            print("estimated measurement: ", est)
+            self.x = self.x + self.W  * s
         return
 
     def run_kf(self):
-        """
-        TODO: complete this function to update the state with current_input and current_measurement
-        """
         current_input = self.u
         current_measurement = self.phi
-        print("current_input: ", self.u)
+        # print("current_input: ", self.u)
         print("current_measurement: ", self.phi)
         
 
         self.predict(current_input)
         
-        print("x apriori: ", self.x)
+        # print("x apriori: ", self.x)
         
         self.measurement_update(current_measurement)
         
-        print("P posterior: ", self.P)
+        # print("P posterior: ", self.P)
         print("W: ", self.W)
         print("x posterior: ", self.x)
-        print("\n\n\n", len(self.P_list),"==================================")
+        print("\n\n\n" + str(len(self.P_list)) + "==================================")
 
         self.P_list.append(self.P)
         self.x_list.append(self.x)
@@ -177,10 +179,23 @@ class KalmanFilter(object):
         self.state_pub.publish(self.x)
         
     def plot(self):
-        x = [i for i in range(len(self.P_list))]
+        x = [i * 1.0/30.0 for i in range(len(self.P_list))]
         plt.plot(x, self.P_list)
+        plt.title("State Covariance")
+        plt.xlabel('time')
+        plt.ylabel('state covariance')
+        plt.savefig('X.png')
+
+        plt.clf()
         plt.plot(x, self.x_list)
+        plt.title("State")
+        plt.xlabel('time')
+        plt.ylabel('state')
+        plt.savefig('P.png')
         print("plot complete")
+
+    def get_state(self):
+        return self.x
 
 
 
@@ -191,14 +206,14 @@ if __name__ == "__main__":
     rate = rospy.Rate(rate)
     
     PID = PIDcontrol(rate)
-    h = 0.60  # y distance to tower
-    d = 0.60 * 3  # x distance to tower (from origin)
+    h = 60.0  # y distance to tower
+    d = 60.0 * 3.0  # x distance to tower (from origin)
 
-    x_0 = 0  # initial state position
+    x_0 = 0.0  # initial state position
 
-    Q = 1  # TODO: Set process noise covariance
-    R = 1  # TODO: measurement noise covariance
-    P_0 = 1  # TODO: Set initial state covariance
+    Q = 3  # TODO: Set process noise covariance
+    R = 3  # TODO: measurement noise covariance
+    P_0 = 0.0 
 
 
     kf = KalmanFilter(h, d, x_0, Q, R, P_0)
@@ -208,15 +223,16 @@ if __name__ == "__main__":
     th = 0.5
     counter = 0
     cmd_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
-    for i in [61, 122, 244, 305]:
+    points = [61, 122, 244, 305]
+    # points = [10, 20]
+    for i in points:
         print(i)
         while not rospy.is_shutdown():
             PID.follow_the_line()
-
-            if i - th <= PID.unfiltered() <= i + th:
+            if i <= kf.get_state():
                 break
-            # kf.run_kf()
-            # rate.sleep()
+            kf.run_kf()
+            rate.sleep()
         
         while not rospy.is_shutdown():
             counter += 1
@@ -230,6 +246,6 @@ if __name__ == "__main__":
             if counter == 60:
                 counter = 0
                 break
-            #kf.run_kf()
-            # rate.sleep()
+            kf.run_kf()
+            rate.sleep()
     kf.plot()
