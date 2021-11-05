@@ -12,7 +12,7 @@ from std_msgs.msg import String
 
 class PIDcontrol():
 
-    def __init__(self):
+    def __init__(self, rate):
         self.cmd_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
         self.color_sub = rospy.Subscriber('line_idx', String, self.camera_callback, queue_size=1)
         self.cmd_sub = rospy.Subscriber("cmd_vel_noisy", Twist, self.cmd_callback)
@@ -27,7 +27,7 @@ class PIDcontrol():
         self.integral = 0
         self.maxIntegral = 1000
         self.lasterror = 0
-        self.rate = rospy.Rate(15)
+        self.rate = rate
         self.log = open('log.txt', 'w')
         self.state = 0
         self.adj_counter = 0
@@ -91,6 +91,14 @@ class KalmanFilter(object):
         self.x = x_0
         self.x_prior = np.nan
         self.dt = 1 # TODO
+        self.prev_time = rospy.Time.now().to_sec()
+        
+        self.A = 1
+        self.B = self.dt
+        self.D = 0
+        
+        self.P_list = []
+        self.x_list = []
 
         self.ycn = 1 # TODO
         self.xcn = 1 # TODO
@@ -113,44 +121,76 @@ class KalmanFilter(object):
 
     ## call within run_kf to update the state with the measurement
     def predict(self, u=0):
-        D = self.ycn / ((self.xcn - self.x)**2 + self.ycn**2)
-        self.x = self.x + u * self.dt
-        self.P = self.P + self.Q
-        S = D * self.P * D + self.R
-        W = self.P * D / S
-        self.P = self.P - W * D * self.P
-        
-
         """
         TODO: update state via the motion model, and update the covariance with the process noise
         """
+        # update dt
+        now = rospy.Time.now().to_sec()
+        self.dt = now - self.prev_time
+        self.prev_time = now
+        
+        # predict state and D
+        self.x = self.x + u * self.dt
+        self.D = self.h / ((self.d - self.x)**2 + self.h**2)
+        
+        # update covariance
+        self.P = self.P + self.Q
+        S = self.D * self.P * self.D + self.R
+        self.W = self.P * self.D / S
+        self.P = self.P - self.W * self.D * self.P
         return
 
     ## call within run_kf to update the state with the measurement
-    def measurement_update(self):
-        self.phi = np.arctan(self.ycn / (self.xcn - self.x))
-
+    def measurement_update(self, current_measurement):
         """
         TODO: update state when a new measurement has arrived using this function
         """
+        # self.phi = np.arctan(self.ycn / (self.xcn - self.x))
+        s = current_measurement - np.arctan(self.ycn / (self.xcn - self.x))
+        self.x = self.x + self.W  * s
         return
 
     def run_kf(self):
-        current_input = self.u
-        current_measurement = self.phi
-
         """
         TODO: complete this function to update the state with current_input and current_measurement
         """
+        current_input = self.u
+        current_measurement = self.phi
+        print("current_input: ", self.u)
+        print("current_measurement: ", self.phi)
+        
+
+        self.predict(current_input)
+        
+        print("x apriori: ", self.x)
+        
+        self.measurement_update(current_measurement)
+        
+        print("P posterior: ", self.P)
+        print("W: ", self.W)
+        print("x posterior: ", self.x)
+        print("\n\n\n", len(self.P_list),"==================================")
+
+        self.P_list.append(self.P)
+        self.x_list.append(self.x)
 
         self.state_pub.publish(self.x)
+        
+    def plot(self):
+        x = [i for i in range(len(self.P_list))]
+        plt.plot(x, self.P_list)
+        plt.plot(x, self.x_list)
+        print("plot complete")
 
 
 
 
 if __name__ == "__main__":
     rospy.init_node("lab4")
-    PID = PIDcontrol()
+    rate = 30 #Hz
+    rate = rospy.Rate(rate)
+    
+    PID = PIDcontrol(rate)
     h = 0.60  # y distance to tower
     d = 0.60 * 3  # x distance to tower (from origin)
 
@@ -160,12 +200,11 @@ if __name__ == "__main__":
     R = 1  # TODO: measurement noise covariance
     P_0 = 1  # TODO: Set initial state covariance
 
-    rate = 30 #Hz
 
     kf = KalmanFilter(h, d, x_0, Q, R, P_0)
     rospy.sleep(1)
 
-    rate = rospy.Rate(rate)
+    
     th = 0.5
     counter = 0
     cmd_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
@@ -175,12 +214,9 @@ if __name__ == "__main__":
             PID.follow_the_line()
 
             if i - th <= PID.unfiltered() <= i + th:
-                
                 break
-            #kf.run_kf()
-            rate.sleep()
-            
-
+            # kf.run_kf()
+            # rate.sleep()
         
         while not rospy.is_shutdown():
             counter += 1
@@ -195,5 +231,5 @@ if __name__ == "__main__":
                 counter = 0
                 break
             #kf.run_kf()
-            rate.sleep()
-    print("done")
+            # rate.sleep()
+    kf.plot()
