@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from numpy.core.numeric import correlate
 import rospy
 import math
 import time
@@ -6,6 +7,8 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import String, UInt32MultiArray
 import numpy as np
 import colorsys
+from numpy import dot
+from numpy.linalg import norm
 
 
 class BayesLoc:
@@ -24,17 +27,87 @@ class BayesLoc:
 
         self.cur_colour = None  # most recent measured colour
 
+        # PID variables
+        self.twist = Twist()
+        self.actual = 320
+        self.desired = 320
+        self.v = 0.1
+        self.k = 0.2
+        self.kp = 0.004  # 0.025 -> perfect oscillation
+        self.ki = 0.00000
+        self.kd = 0.001
+        self.integral = 0
+        self.derivative = 0
+        self.maxIntegral = 1000
+        self.lasterror = 0
+        self.on_color = False
+        self.on_color_time = 32
+        self.on_color_count = self.on_color_time
+
+        # color testing
+        self.colors = []
+        self.log = open('log.txt', 'w')
+
+
+
     def colour_callback(self, msg):
         """
         callback function that receives the most recent colour measurement from the camera.
         """
         self.cur_colour = np.array(msg.data)  # [r, g, b]
-        print(self.cur_colour)
+        # print("cur color: ", self.cur_colour)
+        self.colors.append(self.cur_colour)
+
+    def PID(self):
+        error = float(self.desired - self.actual)
+        self.integral += error
+        
+        if error == 0 or np.sign(error) != np.sign(self.lasterror):
+            self.integral = 0
+        self.integral = np.sign(self.integral) * min(abs(self.integral), self.maxIntegral)
+        self.derivative = error - self.lasterror
+        if False:
+            print("error: " + str(error))
+            print("last error: " + str(self.lasterror))
+            print("integral: ", self.integral)
+            print("derivative: ", self.derivative)
+            print('\n\n\n\n\n\n')
+        self.twist.linear.x = self.v
+        correction = self.kp * error + self.ki * self.integral + self.kd * self.derivative
+        # correction = 0
+        line_color = np.array([160, 160, 160])
+        if self.cur_colour != None and not self.on_color:
+            diff = dot(self.cur_colour, line_color) / (norm(self.cur_colour) * norm(line_color))
+            print(diff)
+            if diff < 0.99:
+                self.on_color = True
+                
+        
+        if self.on_color:
+            correction = 0
+            self.on_color_count += -1
+            if self.on_color_count == 0:
+                self.on_color_count = self.on_color_time
+                self.on_color = False
+        
+        print(self.on_color)
+        print(self.on_color_count)
+        print("\n")
+
+        self.twist.angular.z = correction
+        self.lasterror = error
+
+
+
+    def follow_the_line(self):
+        self.PID()
+        # self.test()
+        self.cmd_pub.publish(self.twist)
+        # self.rate.sleep()
 
     def line_callback(self, msg):
-        """
-        TODO: Complete this with your line callback function from lab 3.
-        """
+        self.actual = int(msg.data)
+        # print("line: ", self.actual)
         return
 
     def wait_for_colour(self):
@@ -58,7 +131,7 @@ class BayesLoc:
         if self.cur_colour is None:
             self.wait_for_colour()
 
-        prob = np.zeros(len(colourCodes))
+        # prob = np.zeros(len(colourCodes))
 
         """
         TODO: You need to compute the probability of states. You should return a 1x5 np.array
@@ -66,7 +139,7 @@ class BayesLoc:
             and the reference RGB values of each colour (self.ColourCodes).
         """
 
-        return prob
+        # return prob
 
     def state_predict(self):
         rospy.loginfo("predicting state")
@@ -82,6 +155,12 @@ class BayesLoc:
         TODO: Complete the state update function: update self.probabilities
         with the probability of being at each state
         """
+
+    def done(self):
+        for s in self.colors:
+            # self.log.write(str(s) + "\n")
+            pass
+        self.log.close()
 
 
 if __name__ == "__main__":
@@ -118,7 +197,9 @@ if __name__ == "__main__":
         TODO: complete this main loop by calling functions from BayesLoc, and
         adding your own high level and low level planning + control logic
         """
+        localizer.follow_the_line()
         rate.sleep()
 
+    localizer.done()
     rospy.loginfo("finished!")
     rospy.loginfo(localizer.probability)
