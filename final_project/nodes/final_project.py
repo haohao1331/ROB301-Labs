@@ -27,6 +27,12 @@ print(colour_codes.shape)
 def normalize(a):
     return a / np.sum(a)
 
+def get_max_index(a):
+    return a.index(max(a))
+
+stop_locations = np.arrary([2, 4, 7])
+stop_locations -= 2
+
 class BayesLoc:
     def __init__(self):
         self.colour_sub = rospy.Subscriber(
@@ -64,6 +70,12 @@ class BayesLoc:
         current_time = self.now.strftime("%H_%M_%S")
         self.log = open('test_camera/' + current_time + '.txt', 'w+')
 
+        # stop
+        self.stop_time = 20
+        self.stop_counter = self.stop_time
+        self.will_stop = False
+        self.stopped = False
+
 
     def colour_callback(self, msg):
         """
@@ -72,6 +84,10 @@ class BayesLoc:
         self.cur_colour = np.array(msg.data)  # [r, g, b]
         # print("cur color: ", self.cur_colour)
         # self.colors.append(self.cur_colour)
+    
+    def test_stop(self):
+        if max(self.probability) > 0.5 and get_max_index(self.probability) in stop_locations: 
+            self.will_stop = True
 
     def PID(self):
         error = float(self.desired - self.actual)
@@ -81,7 +97,6 @@ class BayesLoc:
             self.integral = 0
         self.integral = np.sign(self.integral) * min(abs(self.integral), self.maxIntegral)
         self.derivative = error - self.lasterror
-        self.twist.linear.x = self.v
         correction = self.kp * error + self.ki * self.integral + self.kd * self.derivative
         # correction = 0
         line_color = np.array([160, 160, 160])
@@ -95,15 +110,18 @@ class BayesLoc:
                 for i in range(len(colour_codes)):
                     dot_products[i] = dot(self.cur_colour, colour_codes[i]) / (norm(colour_codes[i]) * norm(self.cur_colour))
                 # print(dot_products)
-                index = dot_products.index(max(dot_products))
+                index = get_max_index(dot_products)
                 print("measured color: ", colors[index])
                 self.colors.append(str(self.cur_colour) + "  " + str(diff) + "   " + str(dot_products) + " " + colors[dot_products.index(max(dot_products))])
                 self.state_predict()
                 self.state_update(index)
+                self.test_stop()
         
         if self.on_color:
             correction = 0
             self.on_color_count += -1
+            if self.on_color_count == self.on_color_time // 2 and self.will_stop:
+                self.stopped = True
             if self.on_color_count == 0:
                 self.on_color_count = self.on_color_time
                 self.on_color = False
@@ -120,6 +138,13 @@ class BayesLoc:
         # print(self.on_color)
         # print(self.on_color_count)
         # print("\n")
+
+        self.twist.linear.x = self.v
+
+        if self.stopped:
+            self.stop_counter -= 1
+            correction = 0
+            self.twist.linear.x = 0
 
         self.twist.angular.z = correction
         self.lasterror = error
