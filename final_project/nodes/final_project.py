@@ -98,7 +98,6 @@ class BayesLoc:
         self.integral = np.sign(self.integral) * min(abs(self.integral), self.maxIntegral)
         self.derivative = error - self.lasterror
         correction = self.kp * error + self.ki * self.integral + self.kd * self.derivative
-        # correction = 0
         line_color = np.array([160, 160, 160])
         if self.cur_colour != None and not self.on_color:
             diff = dot(self.cur_colour, line_color) / (norm(self.cur_colour) * norm(line_color))
@@ -117,7 +116,8 @@ class BayesLoc:
                 self.state_update(index)
                 self.test_stop()
         
-        if self.on_color:
+        if self.on_color and not self.stopped:
+            print("on color", self.on_color_count)
             correction = 0
             self.on_color_count += -1
             if self.on_color_count == self.on_color_time // 2 and self.will_stop:
@@ -125,8 +125,6 @@ class BayesLoc:
             if self.on_color_count == 0:
                 self.on_color_count = self.on_color_time
                 self.on_color = False
-            
-            # do the baysian thing
         
         if False:
             print("error: " + str(error))
@@ -142,9 +140,14 @@ class BayesLoc:
         self.twist.linear.x = self.v
 
         if self.stopped:
+            print("stopped ", self.stop_counter)
             self.stop_counter -= 1
             correction = 0
             self.twist.linear.x = 0
+            if self.stop_counter == 0:
+                self.stopped = False
+                self.stop_counter = self.stop_time
+                self.will_stop = False
 
         self.twist.angular.z = correction
         self.lasterror = error
@@ -152,9 +155,7 @@ class BayesLoc:
 
     def follow_the_line(self):
         self.PID()
-        # self.test()
         self.cmd_pub.publish(self.twist)
-        # self.rate.sleep()
 
     def line_callback(self, msg):
         self.actual = int(msg.data)
