@@ -69,6 +69,10 @@ class BayesLoc:
         self.now = datetime.now()
         current_time = self.now.strftime("%H_%M_%S")
         self.log = open('test_camera/' + current_time + '.txt', 'w+')
+        
+        # probability plot
+        self.prob_data_file = open('prob_data/' + current_time + '.txt', 'w+')
+        self.prob_data = []
 
         # stop
         self.stop_time = 20
@@ -187,12 +191,16 @@ class BayesLoc:
         
         self.probability = normalize(new_prob)
         print("posterior update: ", self.probability)
+        self.prob_data.append(np.copy(self.probability))
 
     def done(self):
         for s in self.colors:
             self.log.write(str(s) + "\n")
             # pass
+        for s in self.prob_data:
+            self.prob_data_file.write(str(s) + '\n')
         self.log.close()
+        self.prob_data_file.close()
 
 
 if __name__ == "__main__":
