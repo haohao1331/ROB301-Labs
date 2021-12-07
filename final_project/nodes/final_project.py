@@ -28,9 +28,9 @@ def normalize(a):
     return a / np.sum(a)
 
 def get_max_index(a):
-    return a.index(max(a))
+    return np.argmax(a)
 
-stop_locations = np.arrary([2, 4, 7])
+stop_locations = np.array([4, 10, 12])
 stop_locations -= 2
 
 class BayesLoc:
@@ -90,6 +90,7 @@ class BayesLoc:
         # self.colors.append(self.cur_colour)
     
     def test_stop(self):
+        print(self.probability)
         if max(self.probability) > 0.5 and get_max_index(self.probability) in stop_locations: 
             self.will_stop = True
 
@@ -107,6 +108,7 @@ class BayesLoc:
             diff = dot(self.cur_colour, line_color) / (norm(self.cur_colour) * norm(line_color))
             # print(diff)
             if diff < 0.99:
+            # if np.abs(self.derivative) > 240:
                 self.on_color = True
                 # print(self.cur_colour)
                 dot_products = [False] * len(colour_codes)
@@ -121,7 +123,7 @@ class BayesLoc:
                 self.test_stop()
         
         if self.on_color and not self.stopped:
-            print("on color", self.on_color_count)
+            # print("on color", self.on_color_count)
             correction = 0
             self.on_color_count += -1
             if self.on_color_count == self.on_color_time // 2 and self.will_stop:
@@ -144,7 +146,9 @@ class BayesLoc:
         self.twist.linear.x = self.v
 
         if self.stopped:
-            print("stopped ", self.stop_counter)
+            # print("stopped ", self.stop_counter)
+            if self.stop_counter == self.stop_time // 2:
+                self.turn_and_stop()
             self.stop_counter -= 1
             correction = 0
             self.twist.linear.x = 0
@@ -155,6 +159,30 @@ class BayesLoc:
 
         self.twist.angular.z = correction
         self.lasterror = error
+
+
+    def turn_and_stop(self):
+        print("turn and stop")
+        rate = rospy.Rate(10)
+        time = 30
+        counter = time
+        for i in range(time):
+            self.twist.angular.z = 0.5
+            self.twist.linear.x = 0
+            self.cmd_pub.publish(self.twist)
+            rate.sleep()
+        
+        for i in range(10):
+            self.twist.angular.z = 0
+            self.twist.linear.x = 0
+            self.cmd_pub.publish(self.twist)
+            rate.sleep()
+
+        for i in range(time):
+            self.twist.angular.z = -0.5
+            self.twist.linear.x = 0
+            self.cmd_pub.publish(self.twist)
+            rate.sleep()
 
 
     def follow_the_line(self):
@@ -173,14 +201,14 @@ class BayesLoc:
             rate.sleep()
 
     def state_predict(self):
-        rospy.loginfo("predicting state")
+        # rospy.loginfo("predicting state")
         new = np.copy(self.probability)
         for i in range(len(new)):
             self.probability[i] = new[(i-1) % self.num_states]
-        print("apriori update: ", self.probability)
+        # print("apriori update: ", self.probability)
 
     def state_update(self, measurement):
-        rospy.loginfo("updating state")
+        # rospy.loginfo("updating state")
         new_prob = np.zeros(self.num_states)
         for j in range(len(self.probability)):
             if state_color_map[j] == measurement:
@@ -190,7 +218,7 @@ class BayesLoc:
             new_prob[j] = self.probability[j] * prob
         
         self.probability = normalize(new_prob)
-        print("posterior update: ", self.probability)
+        # print("posterior update: ", self.probability)
         self.prob_data.append(np.copy(self.probability))
 
     def done(self):
